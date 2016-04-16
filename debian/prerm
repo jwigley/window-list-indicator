@@ -1,0 +1,11 @@
+#!/bin/sh -e
+
+#xdg-icon-resource uninstall --theme ubuntu-mono-dark --novendor --size 22 window-list
+#xdg-icon-resource uninstall --theme ubuntu-mono-light --novendor --size 22 window-list
+xdg-desktop-menu uninstall window-list.desktop
+
+#xdg-icon-resource uninstall --theme hicolor --novendor --size 22 window-list
+#xdg-icon-resource uninstall --theme hicolor --novendor --size 128 --context apps window-list
+#xdg-icon-resource uninstall --theme hicolor --novendor --size 48 --context apps window-list
+
+#DEBHELPER#

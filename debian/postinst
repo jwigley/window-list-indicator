@@ -1,0 +1,6 @@
+#!/bin/sh -e
+xdg-desktop-menu install --novendor /usr/share/window-list/window-list.desktop
+
+#DEBHELPER#
+
+

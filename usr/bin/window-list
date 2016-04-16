@@ -1,0 +1,466 @@
+#! /usr/bin/python
+#
+# Window-List - application indicator for current open windows
+#
+# Copyright (C) 2014 James Wigley <jwigley@gmail.com>
+#
+# This program is free software: you can redistribute it and/or modify it
+# under the terms of either or both of the following licenses:
+#
+# 1) the GNU Lesser General Public License version 3, as published by the
+# Free Software Foundation; and/or
+# 2) the GNU Lesser General Public License version 2.1, as published by
+# the Free Software Foundation.
+#
+# This program is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranties of
+# MERCHANTABILITY, SATISFACTORY QUALITY or FITNESS FOR A PARTICULAR
+# PURPOSE.  See the applicable version of the GNU Lesser General Public
+# License for more details.
+#
+# You should have received a copy of both the GNU Lesser General Public
+# License version 3 and version 2.1 along with this program.  If not, see
+# <http://www.gnu.org/licenses/>
+
+import sys
+import gtk
+import subprocess
+import appindicator
+import imaplib
+import re
+import textwrap
+import socket
+import wnck  
+import os
+import dbus
+import dbus.mainloop.glib
+import glib
+import shutil
+
+# constants
+APP_IDENTIFIER = 'window-list' # file name
+APP_NAME       = 'Window-List' # pretty name for display
+APP_VERSION    = '0.10'
+TRUNC_NAME_LENGTH = 60
+
+VALUE_TRUE  = 'True'
+VALUE_FALSE = 'False'
+
+# config paths
+XDG_CONFIG_DIR = glib.get_user_config_dir()
+APP_CONFIG_DIR = os.path.join(XDG_CONFIG_DIR, APP_IDENTIFIER)
+APP_CONFIG_FILE = os.path.join(APP_CONFIG_DIR, 'config')
+
+# .desktop 
+AUTOSTART_DIR = os.path.join(XDG_CONFIG_DIR, 'autostart') 
+AUTOSTART_FILE = os.path.join(AUTOSTART_DIR, APP_IDENTIFIER + '.desktop')
+
+# default values
+window_list = []
+
+entry_id             = ''
+menu_open            = False
+menu_update_on_close = False
+show_icons           = True
+run_startup          = True
+
+class WindowList:
+    def __init__(self):
+        self.ind = appindicator.Indicator('window-list',
+                                          APP_NAME,
+                                          appindicator.CATEGORY_SYSTEM_SERVICES)
+        self.ind.set_status(appindicator.STATUS_ACTIVE)
+        self.ind.set_icon('window-list')
+        self.ind.set_attention_icon('window-list')
+        
+        self.read_config()
+        
+        self.set_from_config()
+        
+        self.update_menu(True);
+
+    def main(self):
+        mainloop = glib.MainLoop ()
+
+        dbus.mainloop.glib.DBusGMainLoop (set_as_default = True)
+        
+        session_bus = dbus.SessionBus()
+
+        # watch for changes on the unity panel                                
+        session_bus.add_signal_receiver(self.process_signal_resync,
+                                        signal_name='ReSync',
+                                        dbus_interface='com.canonical.Unity.Panel.Service.Desktop') 
+
+        session_bus.add_signal_receiver(self.process_signal_entry_activated,
+                                        signal_name='EntryActivated',
+                                        dbus_interface='com.canonical.Unity.Panel.Service.Desktop') 
+
+        # watch for changes to any windows        
+        session_bus.add_signal_receiver(self.process_signal_window_change,
+                                        signal_name='ViewClosed',
+                                        dbus_interface='org.ayatana.bamf.matcher') 
+
+        session_bus.add_signal_receiver(self.process_signal_window_change,
+                                        signal_name='ViewOpened',
+                                        dbus_interface='org.ayatana.bamf.matcher')
+
+        session_bus.add_signal_receiver(self.process_signal_window_change,
+                                        signal_name='NameChanged',
+                                        dbus_interface='org.ayatana.bamf.view') 
+
+        # Run the GLib event loop to process DBus signals as they arrive
+        mainloop = glib.MainLoop ()
+        mainloop.run ()
+        gtk.main()
+
+    def process_signal_entry_activated(self,act_entry_id,geometry):
+        global menu_open
+        global menu_update_on_close
+        
+        # set flag if menu opened was ours
+        if entry_id != '' and act_entry_id == entry_id:
+            menu_open = True
+        else:
+            menu_open = False
+        
+            if menu_update_on_close:
+                menu_update_on_close = False
+                self.update_menu(True)
+
+    def process_signal_resync(self,type):
+        global entry_id
+        
+        entry_id = self.get_entry_id()
+
+        if entry_id != '':
+            # stop listening to resync signals as we already got what we want
+            session_bus = dbus.SessionBus()
+            session_bus.remove_signal_receiver(self.process_signal_resync,
+                                               signal_name='ReSync',
+                                               dbus_interface='com.canonical.Unity.Panel.Service.Desktop') 
+    
+    def process_signal_window_change(self,path,title):
+        self.update_menu(False)
+    
+    def get_entry_id(self):
+        entry_id = ''
+
+        session_bus = dbus.SessionBus()
+        ups = session_bus.get_object('com.canonical.Unity.Panel.Service.Desktop',
+                                     '/com/canonical/Unity/Panel/Service/Desktop')
+
+        # return if we couldn't get the ups object        
+        if 'ups' not in locals():        
+            return entry_id
+        
+        # grab unity panel service sync data         
+        sync = ups.Sync(dbus_interface='com.canonical.Unity.Panel.Service.Desktop')                                     
+        
+        for entry in sync:
+        
+            # grab entry id if window-list is found in sync data struct
+            if entry[2] == 'window-list':
+                entry_id = entry[1]        
+
+        return entry_id       
+        
+    def create_config_dir(self):
+        if not os.path.exists(APP_CONFIG_DIR):
+            os.makedirs(APP_CONFIG_DIR)
+        
+    def read_config(self):
+        if os.path.exists(APP_CONFIG_FILE):
+
+            config = open(APP_CONFIG_FILE)
+            for line in config:
+
+                if 'SHOW_ICONS=' in line:
+                    if VALUE_TRUE.lower() in line[11:].lower():
+                        self.set_show_icons_flag(True)
+                    else:
+                        self.set_show_icons_flag(False)
+
+                if 'RUN_STARTUP=' in line:
+                    if VALUE_TRUE.lower() in line[12:].lower():
+                        self.set_run_startup_flag(True)
+                    else:
+                        self.set_run_startup_flag(False)
+            
+            config.close()    
+    
+    def write_config(self):
+        self.create_config_dir()  
+        config = open(APP_CONFIG_FILE,'w')
+        
+        # show icons        
+        if show_icons:
+            value = VALUE_TRUE
+        else:
+            value = VALUE_FALSE
+        
+        config.write('SHOW_ICONS=' + value + '\n')
+
+        # run at startup    
+        if run_startup:
+            value = VALUE_TRUE
+        else:
+            value = VALUE_FALSE
+        
+        config.write('RUN_STARTUP=' + value + '\n')
+
+        config.close()
+        
+    def set_from_config(self):
+        # perform actions based on config values    
+        self.update_run_startup()
+
+    def set_window_list(self,new_window_list):
+        global window_list
+        
+        window_list = new_window_list
+    
+    def set_show_icons_flag(self,flag):
+        global show_icons
+        
+        show_icons = flag
+
+    def set_run_startup_flag(self,flag):
+        global run_startup
+        
+        run_startup = flag
+        
+    def check_autostart_dir(self):
+        if not os.path.exists(AUTOSTART_DIR):
+            os.makedirs(AUTOSTART_DIR)
+
+    def update_run_startup(self):
+        self.check_autostart_dir()
+        
+        if run_startup:
+            self.create_run_startup()
+        else:
+            self.remove_run_startup()
+
+    def create_run_startup(self):
+        if not os.path.exists(AUTOSTART_FILE):
+            shutil.copyfile('/usr/share/' + APP_IDENTIFIER + '/' + APP_IDENTIFIER + '-autostart.desktop', AUTOSTART_FILE)
+
+    def remove_run_startup(self):
+        if os.path.exists(AUTOSTART_FILE):
+            os.remove(AUTOSTART_FILE)
+    
+    def update_menu(self,force_update):
+        global menu_open
+        global menu_update_on_close
+
+        # dont update if menu is currently open    
+        if menu_open:
+            menu_update_on_close = True
+            return False
+
+        # get new window list
+        new_window_list = self.get_new_window_list()
+        
+        if new_window_list != window_list or force_update:
+            # update menu if windows have changed
+            self.ind.set_menu(self.setup_menu(new_window_list))
+
+        return True
+
+    def get_new_window_list(self):
+        new_window_list = []
+        wnck_list       = []
+
+        # get wnck window list
+        wnck_screen = wnck.screen_get_default()  
+        while gtk.events_pending():  
+            gtk.main_iteration(False)
+            
+        wnck_list = wnck_screen.get_windows()  
+
+        p1 = subprocess.Popen(['wmctrl','-l'], stdout=subprocess.PIPE)
+        (sout,serr) = p1.communicate()
+
+        hostname = socket.gethostname() 
+ 
+        for line in sout.split('\n'):
+            if hostname in line:
+                
+                id = line.split(' ')[0]
+                
+                # grab title, preserving whitespace
+                title_pos = len(id) + len(hostname) + 5
+                title = line[title_pos:]
+                
+                window = []
+                window.append(id)    # ID
+                window.append(title) # title
+
+                # convert hex id to int for comparison
+                id_int = int(id,16)
+                
+                # find matching wnck window    
+                for wnck_window in wnck_list:
+                
+                    if id_int == wnck_window.get_xid():
+                        window.append(wnck_window)
+                        break
+            
+                new_window_list.append(window) 
+
+        return new_window_list;
+    
+    def check_valid_window(self,window_type):
+         # valid window types
+         # WNCK_WINDOW_NORMAL       document/app window 
+         # WNCK_WINDOW_DIALOG       dialog 
+         # WNCK_WINDOW_TOOLBAR      tearoff toolbar 
+         # WNCK_WINDOW_MENU         tearoff menu 
+         # WNCK_WINDOW_UTILITY      palette/toolbox window 
+         # WNCK_WINDOW_SPLASHSCREEN 
+
+         # invalid window types
+         # WNCK_WINDOW_DESKTOP      desktop background 
+         # WNCK_WINDOW_DOCK         panel
+    
+        if window_type == 'WNCK_WINDOW_DESKTOP' or window_type == 'WNCK_WINDOW_DOCK':
+            return False
+        
+        return True
+
+    def setup_menu(self, window_list):
+        menu = gtk.Menu()
+        
+        # for each window, add menu item
+        for window in window_list:
+            if len(window) == 3:
+                win_id       = window[0]
+                win_title    = window[1]
+                wnck_window  = window[2]
+            
+                if self.check_valid_window(wnck_window.get_window_type().value_name):
+                    self.add_window_menu_item(menu,win_title,self.menu_window,win_id,wnck_window)
+
+        menu_item = gtk.SeparatorMenuItem()
+        menu.append(menu_item)
+
+        # standard sub-menu
+        sub_menu = gtk.Menu()
+        sub_menu_item = gtk.MenuItem('%s'%APP_NAME)
+        sub_menu_item.set_submenu(sub_menu)
+        
+        # show icons        
+        menu_item = gtk.CheckMenuItem('Show icons')
+        if show_icons:
+            menu_item.set_active(True)
+        menu_item.connect('activate', self.menu_show_icons)
+        sub_menu.append(menu_item)
+
+        # run at startup        
+        menu_item = gtk.CheckMenuItem('Run at startup')
+        if run_startup:
+            menu_item.set_active(True)
+        menu_item.connect('activate', self.menu_run_startup)
+        sub_menu.append(menu_item)
+        
+        menu_item = gtk.SeparatorMenuItem()
+        sub_menu.append(menu_item)
+
+        # about
+        menu_item = gtk.ImageMenuItem(gtk.STOCK_ABOUT)
+        menu_item.set_always_show_image(show_icons)
+        menu_item.connect('activate', self.menu_about,'') 
+        sub_menu.append(menu_item)
+
+        # quit
+        menu_item = gtk.ImageMenuItem(gtk.STOCK_QUIT)
+        menu_item.set_always_show_image(show_icons)
+        menu_item.connect('activate',self.menu_quit,'')
+
+        sub_menu.append(menu_item)
+        menu.append(sub_menu_item)
+
+        menu.show_all() 
+
+        return menu;
+    
+    def add_window_menu_item(self, menu, item_name, action,win_id,wnck_window):
+        # menu item with icon if required
+        menu_item = gtk.ImageMenuItem()
+
+        # truncate long names to 60 chars        
+        if len(item_name) > TRUNC_NAME_LENGTH:
+            item_name = item_name[:TRUNC_NAME_LENGTH] + '...'   
+        
+        menu_item.set_label(item_name)
+        menu_item.set_always_show_image(show_icons)
+
+        if show_icons:
+            image = gtk.Image()
+            image.show()
+
+            image.set_from_pixbuf(wnck_window.get_icon())
+        
+            menu_item.set_image(image)
+        
+        menu_item.connect('activate', action,win_id)
+        menu_item.show()
+        menu.append(menu_item)
+        
+    def menu_show_icons(self,widget):
+        self.set_show_icons_flag(widget.active)
+        self.update_menu(True)
+        self.write_config()
+
+    def menu_run_startup(self,widget):
+        self.set_run_startup_flag(widget.active)
+        self.update_run_startup()
+        self.write_config()
+    
+    def menu_window(self,widget,win_id):
+
+        #   switch to selected window
+        p1 = subprocess.Popen(['wmctrl','-i','-a',win_id], stdout=subprocess.PIPE)
+
+    def menu_quit(self, widget,win_id):
+
+        sys.exit(0)
+
+    def menu_about(self, widget,win_id):
+
+        dialog = gtk.AboutDialog()
+        dialog.set_name(APP_NAME)
+        dialog.set_version(APP_VERSION)
+        dialog.set_website('http://www.launchpad.net/~jwigley/')
+        dialog.set_comments('An application indicator for current open windows')
+        dialog.set_authors(['James Wigley <jwigley@jameswigley.com>'])
+        dialog.set_copyright('Copyright (C) 2014 James Wigley')
+        dialog.set_license(textwrap.dedent(
+            '''
+            Copyright (C) 2014 James Wigley <jwigley@gmail.com>
+
+            This program is free software: you can redistribute it and/or modify it
+            under the terms of either or both of the following licenses:
+
+            1) the GNU Lesser General Public License version 3, as published by the
+            Free Software Foundation; and/or
+            2) the GNU Lesser General Public License version 2.1, as published by
+            the Free Software Foundation.
+
+            This program is distributed in the hope that it will be useful, but
+            WITHOUT ANY WARRANTY; without even the implied warranties of
+            MERCHANTABILITY, SATISFACTORY QUALITY or FITNESS FOR A PARTICULAR
+            PURPOSE.  See the applicable version of the GNU Lesser General Public
+            License for more details.
+
+            You should have received a copy of both the GNU Lesser General Public
+            License version 3 and version 2.1 along with this program.  If not, see
+            <http://www.gnu.org/licenses/>
+            '''))
+
+        dialog.run()
+        dialog.destroy()
+
+if __name__ == '__main__':
+    indicator = WindowList()
+    indicator.main()

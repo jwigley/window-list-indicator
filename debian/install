@@ -1,0 +1,6 @@
+/usr/bin/window-list /usr/bin/
+/usr/share/window-list/icons/hicolor/window-list.svg /usr/share/icons/hicolor/scalable/apps/
+/usr/share/window-list/icons/ubuntu-mono-light/window-list.svg /usr/share/icons/ubuntu-mono-light/scalable/apps/
+/usr/share/window-list/icons/ubuntu-mono-dark/window-list.svg /usr/share/icons/ubuntu-mono-dark/scalable/apps/
+/usr/share/window-list/* /usr/share/window-list/
+

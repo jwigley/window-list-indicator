@@ -1,0 +1,65 @@
+window-list (0.10~xenial) xenial; urgency=low
+
+  * corrected dependencies
+
+ -- James Wigley <jwigley@gmail.com>  Sat, 16 Apr 2016 10:15:34 +1000
+
+window-list (0.09~xenial) xenial; urgency=low
+
+  * remove python-gmenu
+
+ -- James Wigley <jwigley@gmail.com>  Fri, 15 Apr 2016 22:43:19 +1000
+
+window-list (0.08~xenial) xenial; urgency=low
+
+  * build with dh-python2
+  * lintian complaints
+
+ -- James Wigley <jwigley@gmail.com>  Fri, 15 Apr 2016 21:10:18 +1000
+
+window-list (0.07~xenial) xenial; urgency=low
+
+  * corrected changelog date format
+
+ -- James Wigley <jwigley@gmail.com>  Fri, 15 Apr 2016 18:19:10 +1000
+
+window-list (0.06~xenial) xenial; urgency=low
+
+  * updated unity panel service api names (thanks Brian Murphy)
+
+ -- James Wigley <jwigley@gmail.com>  Mon, 27 Oct 2014 17:20:10 +1000
+
+window-list (0.05~xenial) xenial; urgency=low
+
+  * fixed issue where list fails to update after startup, due to
+    unity panel service not being available
+  * update menu after closing if changes occured while menu is open
+
+ -- James Wigley <jwigley@gmail.com>  Fri, 21 Sep 2012 19:31:45 +1000
+
+window-list (0.04~xenial) xenial; urgency=low
+
+  * match wmctrl and wnck window lists using xid
+  * fixed flickering issue when window title updates
+    while menu is open
+  * general clean-up
+
+ -- James Wigley <jwigley@gmail.com>  Thu, 06 Sep 2012 18:21:15 +1000
+
+window-list (0.03~xenial) xenial; urgency=low
+
+  * fixed light/dark icon placement, symlinks
+
+ -- James Wigley <jwigley@gmail.com>  Wed, 30 May 2012 20:21:15 +1000
+
+window-list (0.02~xenial) xenial; urgency=low
+
+  * updated icons - light and dark
+
+ -- James Wigley <jwigley@gmail.com>  Wed, 30 May 2012 20:21:15 +1000
+
+window-list (0.01~xenial) xenial; urgency=low
+
+  * Initial release. (Closes: LP)
+
+ -- James Wigley <jwigley@gmail.com>  Tue, 22 May 2012 13:09:15 +1000

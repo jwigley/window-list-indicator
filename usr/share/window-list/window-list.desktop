@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Terminal=false
+Exec=window-list
+Icon=window-list
+Name=Window-List
+Comment=indicator to display a list of open windows
+Categories=Utility;
+
